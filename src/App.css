@@ -977,3 +977,13 @@ textarea {
     justify-content: center;
   }
 }
+
+
+.dropdown-multi { margin: 12px 0 18px; }
+.select-row { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 8px; }
+.selected-values { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.removable-chip { cursor: pointer; }
+.empty-chip { color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 8px 11px; font-size: 13px; font-weight: 800; }
+.database-note { margin-top: 16px; background: rgba(92,200,255,0.10); border: 1px solid rgba(92,200,255,0.24); color: var(--muted); border-radius: 18px; padding: 14px; line-height: 1.5; }
+.database-note strong { color: var(--text); }
+.profile-fit-line { margin-top: 8px !important; font-size: 13px; color: #dce9f9 !important; font-weight: 800; }
