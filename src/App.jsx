@@ -27,8 +27,11 @@ import {
   Sparkles,
   Heart,
   ClipboardList,
+  MessageCircle,
+  Send,
 } from 'lucide-react';
 import { generateRecruitingEmail } from './lib/generateRecruitingEmail';
+import { chatRecruitingEmail } from './lib/chatRecruitingEmail';
 
 const STORAGE_KEY = 'jackson_college_match_v1';
 
@@ -51,6 +54,7 @@ const DEFAULT_PROFILE = {
   videoLink: '',
   email: '',
   phone: '',
+  playerNotes: '',
 };
 
 const DEFAULT_PREFS = {
@@ -787,7 +791,9 @@ My name is ${profile.name || 'Jackson DeMarco'}, and I wanted to reach out becau
 
 I am a [graduation year] at ${profile.highSchool || '[high school]'}, and I play ${profile.position || '[position]'}. My height is ${profile.height || '[height]'}, my vertical is ${profile.vertical || '[vertical]'}, and I play for ${profile.clubTeam || '[club team]'}. Academically, my GPA is ${profile.gpa || '[GPA]'}, and I am interested in studying ${majors}.
 
-I like ${school.name} because ${school.christian ? 'it seems like a strong Christian environment and ' : ''}it looks like a school where I could grow as a player, student, and person. I am trying to find colleges that fit me academically and athletically, not just random schools to email.
+I like ${school.name} because ${school.christian ? 'it seems like a strong Christian environment and ' : ''}it looks like a school where I could grow as a player, student, and person. I am trying to find colleges that fit me academically and athletically, not just random schools to email.${profile.playerNotes ? `
+
+One thing I want coaches to know about me is: ${profile.playerNotes}` : ''}
 
 I would appreciate any advice on what I should send you next, whether that is film, my schedule, or more academic information.
 
@@ -917,6 +923,15 @@ Video: ${profile.videoLink || '[video link]'}`;
                 updatePrefs({ majors: values });
               }}
             />
+
+            <label className="notes-box profile-notes-box">
+              <span><NotebookPen size={16} /> Player Notes for AI Emails</span>
+              <textarea
+                value={profile.playerNotes || ''}
+                onChange={(e) => updateProfile({ playerNotes: e.target.value })}
+                placeholder="Write anything you want the AI to remember when making coach emails: your goals, playing style, why you love volleyball, what you are working on, camps you went to, school fit, personality, story, or anything that sounds like you."
+              />
+            </label>
 
             <h3 className="subhead">Coach Reference</h3>
             <div className="form-grid">
@@ -1111,6 +1126,7 @@ function buildAIPlayerProfile(profile, prefs) {
     coachReferences: coachReference,
     email: profile.email || '',
     phone: profile.phone || '',
+    playerNotes: profile.playerNotes || '',
   };
 }
 
@@ -1125,6 +1141,8 @@ function buildAISchoolProfile(school, prefs) {
     programNotes: `${school.name} is a ${school.division || ''} men's volleyball program in ${school.city ? `${school.city}, ` : ''}${school.state || ''}. Fit tier: ${school.score?.tier || ''}. Fit score: ${school.score?.total || ''}.`,
     teamNotes: `Christian fit: ${school.christian ? 'Yes' : 'No'}. Campus size: ${school.campusSize || ''}. Volleyball score: ${school.volleyballScore || ''}. Recruiting fit: ${school.recruitingFit || ''}. Opportunity score: ${school.opportunityScore || ''}.`,
     websiteUrl: school.website || '',
+    savedSchoolNotes: school.progress?.notes || '',
+    lastContact: school.progress?.lastContact || '',
   };
 }
 
@@ -1134,6 +1152,9 @@ function SchoolCard({ school, profile, prefs, updateProgress, makeEmailDraft, re
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [aiDraft, setAiDraft] = useState(null);
   const [draftError, setDraftError] = useState('');
+  const [draftChatInput, setDraftChatInput] = useState('');
+  const [draftChatMessages, setDraftChatMessages] = useState([]);
+  const [isChattingAboutDraft, setIsChattingAboutDraft] = useState(false);
   const progress = school.progress;
 
   const tierClass = school.score.total >= 85 ? 'elite' : school.score.total >= 75 ? 'strong' : school.score.total >= 65 ? 'watch' : 'backup';
@@ -1202,6 +1223,64 @@ function SchoolCard({ school, profile, prefs, updateProgress, makeEmailDraft, re
       setTimeout(() => setCopied(false), 1500);
     } catch {
       window.alert('Copy failed. You can still select and copy the draft manually.');
+    }
+  }
+
+  async function sendDraftChatMessage() {
+    const message = draftChatInput.trim();
+    if (!message || !aiDraft || isChattingAboutDraft) return;
+
+    const userChatMessage = {
+      role: 'user',
+      content: message,
+    };
+
+    const nextMessages = [...draftChatMessages, userChatMessage];
+    setDraftChatMessages(nextMessages);
+    setDraftChatInput('');
+    setIsChattingAboutDraft(true);
+    setDraftError('');
+
+    try {
+      const response = await chatRecruitingEmail({
+        playerProfile: buildAIPlayerProfile(profile, prefs),
+        schoolProfile: buildAISchoolProfile(school, prefs),
+        currentDraft: {
+          subject: aiDraft.subject || '',
+          body: aiDraft.body || '',
+        },
+        userMessage: message,
+        chatHistory: draftChatMessages,
+      });
+
+      setAiDraft((current) => ({
+        ...(current || {}),
+        subject: response.subject || current?.subject || '',
+        body: response.body || current?.body || '',
+        editSuggestions: Array.isArray(response.editSuggestions)
+          ? response.editSuggestions
+          : current?.editSuggestions || [],
+        whyThisIsPersonal:
+          response.whyThisIsPersonal || current?.whyThisIsPersonal || '',
+      }));
+
+      setDraftChatMessages([
+        ...nextMessages,
+        {
+          role: 'assistant',
+          content: response.reply || response.changeSummary || 'I updated the draft.',
+        },
+      ]);
+    } catch (error) {
+      setDraftChatMessages([
+        ...nextMessages,
+        {
+          role: 'assistant',
+          content: error.message || 'I could not update the draft right now.',
+        },
+      ]);
+    } finally {
+      setIsChattingAboutDraft(false);
     }
   }
 
@@ -1352,6 +1431,43 @@ function SchoolCard({ school, profile, prefs, updateProgress, makeEmailDraft, re
                   </ul>
                 </div>
               )}
+
+              <div className="ai-draft-chat-box">
+                <div className="ai-draft-chat-head">
+                  <div>
+                    <h4><MessageCircle size={17} /> Ask AI About This Email</h4>
+                    <p>Ask for changes like: make it shorter, sound more like me, add my notes, make it more confident, or explain what should be changed.</p>
+                  </div>
+                </div>
+
+                {draftChatMessages.length > 0 && (
+                  <div className="ai-draft-chat-messages">
+                    {draftChatMessages.map((message, index) => (
+                      <div key={index} className={cn('ai-draft-chat-message', message.role === 'user' ? 'user' : 'assistant')}>
+                        <span>{message.role === 'user' ? 'You' : 'AI'}</span>
+                        <p>{message.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="ai-draft-chat-row">
+                  <input
+                    value={draftChatInput}
+                    onChange={(e) => setDraftChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendDraftChatMessage();
+                      }
+                    }}
+                    placeholder="Ask AI to change or explain this email..."
+                  />
+                  <button className="primary small" onClick={sendDraftChatMessage} disabled={isChattingAboutDraft || !draftChatInput.trim()}>
+                    <Send size={16} /> {isChattingAboutDraft ? 'Thinking...' : 'Send'}
+                  </button>
+                </div>
+              </div>
             </>
           )}
         </div>
