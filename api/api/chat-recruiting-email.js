@@ -6,11 +6,15 @@ const client = new OpenAI({
 
 function extractJson(text) {
   if (!text) return null;
+
   try {
     return JSON.parse(text);
   } catch {}
+
   const match = text.match(/\{[\s\S]*\}/);
+
   if (!match) return null;
+
   try {
     return JSON.parse(match[0]);
   } catch {
@@ -25,15 +29,28 @@ export default async function handler(req, res) {
 
   try {
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: "Missing OPENAI_API_KEY in Vercel Environment Variables." });
+      return res.status(500).json({
+        error: "Missing OPENAI_API_KEY in Vercel Environment Variables.",
+      });
     }
 
-    const { playerProfile = {}, schoolProfile = {}, currentDraft = {}, userMessage = "", chatHistory = [] } = req.body || {};
+    const {
+      playerProfile = {},
+      schoolProfile = {},
+      currentDraft = {},
+      userMessage = "",
+      chatHistory = [],
+    } = req.body || {};
 
-    const prompt = `
-You are helping revise a men's college volleyball recruiting email.
-
-Player profile:
+    const messages = [
+      {
+        role: "system",
+        content:
+          "You help revise men's college volleyball recruiting emails. Do not invent fake achievements, offers, awards, coach conversations, or visits. Return only valid JSON.",
+      },
+      {
+        role: "user",
+        content: `Player profile:
 ${JSON.stringify(playerProfile, null, 2)}
 
 School profile:
@@ -48,13 +65,7 @@ ${JSON.stringify(chatHistory, null, 2)}
 User message:
 ${userMessage}
 
-Rules:
-- If the user asks to change the email, return an updated subject/body.
-- If the user asks a question, answer it and only change the draft if helpful.
-- Do not invent fake achievements, offers, coach relationships, or visits.
-- Return only valid JSON.
-
-Return exactly:
+Return exactly this JSON shape:
 {
   "reply": "string",
   "subject": "string",
@@ -62,18 +73,23 @@ Return exactly:
   "editSuggestions": ["string"],
   "whyThisIsPersonal": "string",
   "changeSummary": "string"
-}
-`;
+}`,
+      },
+    ];
 
-    const response = await client.responses.create({
+    const completion = await client.chat.completions.create({
       model: "gpt-4.1-mini",
-      input: prompt,
+      messages,
+      temperature: 0.5,
     });
 
-    const parsed = extractJson(response.output_text || "");
+    const text = completion.choices?.[0]?.message?.content || "";
+    const parsed = extractJson(text);
+
     if (!parsed) {
       return res.status(200).json({
-        reply: "I could not fully update the draft, but you can ask again with a simpler request.",
+        reply:
+          "I could not fully update the draft, but you can ask again with a simpler request.",
         subject: currentDraft.subject || "",
         body: currentDraft.body || "",
         editSuggestions: [],
@@ -86,12 +102,16 @@ Return exactly:
       reply: parsed.reply || parsed.changeSummary || "I updated the draft.",
       subject: parsed.subject || currentDraft.subject || "",
       body: parsed.body || currentDraft.body || "",
-      editSuggestions: Array.isArray(parsed.editSuggestions) ? parsed.editSuggestions : [],
+      editSuggestions: Array.isArray(parsed.editSuggestions)
+        ? parsed.editSuggestions
+        : [],
       whyThisIsPersonal: parsed.whyThisIsPersonal || "",
       changeSummary: parsed.changeSummary || "",
     });
   } catch (error) {
     console.error("chat-recruiting-email error:", error);
-    return res.status(500).json({ error: error.message || "Failed to chat about the recruiting email." });
+    return res.status(500).json({
+      error: error.message || "Failed to chat about the recruiting email.",
+    });
   }
 }
