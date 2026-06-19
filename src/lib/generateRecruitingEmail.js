@@ -19,12 +19,15 @@ export async function generateRecruitingEmail({
     }),
   });
 
+  const rawText = await response.text();
   let data;
 
   try {
-    data = await response.json();
+    data = JSON.parse(rawText);
   } catch {
-    throw new Error("The server did not return valid JSON.");
+    throw new Error(
+      `The API did not return JSON. Status: ${response.status}. Response starts with: ${rawText.slice(0, 300)}`
+    );
   }
 
   if (!response.ok) {
@@ -36,16 +39,10 @@ export async function generateRecruitingEmail({
     body: data.body || "",
     personalizationScore: data.personalizationScore || 0,
     personalizationLevel: data.personalizationLevel || "Low",
-    personalDetailsUsed: Array.isArray(data.personalDetailsUsed)
-      ? data.personalDetailsUsed
-      : [],
-    programDetailsUsed: Array.isArray(data.programDetailsUsed)
-      ? data.programDetailsUsed
-      : [],
+    personalDetailsUsed: Array.isArray(data.personalDetailsUsed) ? data.personalDetailsUsed : [],
+    programDetailsUsed: Array.isArray(data.programDetailsUsed) ? data.programDetailsUsed : [],
     whyThisIsPersonal: data.whyThisIsPersonal || "",
-    editSuggestions: Array.isArray(data.editSuggestions)
-      ? data.editSuggestions
-      : [],
+    editSuggestions: Array.isArray(data.editSuggestions) ? data.editSuggestions : [],
     warnings: Array.isArray(data.warnings) ? data.warnings : [],
   };
 }
